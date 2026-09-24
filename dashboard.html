@@ -1,0 +1,269 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>RemoteKit 控制面板</title>
+<style>
+  :root { --bg:#0f172a; --card:#1e293b; --line:#334155; --txt:#e2e8f0; --muted:#94a3b8; --ok:#22c55e; --warn:#f59e0b; --bad:#ef4444; --acc:#38bdf8; }
+  * { box-sizing:border-box; }
+  body { margin:0; font-family:-apple-system,"PingFang SC","Microsoft YaHei",Segoe UI,sans-serif; background:var(--bg); color:var(--txt); }
+  header { padding:18px 28px; display:flex; align-items:center; gap:14px; border-bottom:1px solid var(--line); }
+  header h1 { margin:0; font-size:20px; }
+  header .meta { color:var(--muted); font-size:13px; }
+  main { padding:20px 28px; display:grid; grid-template-columns:repeat(auto-fit,minmax(340px,1fr)); gap:16px; max-width:1400px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:16px 18px; }
+  .card h2 { margin:0 0 12px; font-size:15px; display:flex; align-items:center; gap:8px; }
+  .dot { width:10px; height:10px; border-radius:50%; background:var(--muted); display:inline-block; }
+  .dot.ok { background:var(--ok); box-shadow:0 0 8px var(--ok); }
+  .dot.warn { background:var(--warn); }
+  .dot.bad { background:var(--bad); }
+  .row { display:flex; justify-content:space-between; gap:10px; padding:6px 0; border-bottom:1px dashed #2b3a52; font-size:13px; }
+  .row:last-child { border-bottom:0; }
+  .row .k { color:var(--muted); white-space:nowrap; }
+  .row .v { text-align:right; word-break:break-all; }
+  code, .mono { font-family:ui-monospace,Consolas,Menlo,monospace; font-size:12.5px; }
+  .url { color:var(--acc); }
+  button { background:#0ea5e9; color:#fff; border:0; border-radius:8px; padding:7px 12px; font-size:13px; cursor:pointer; }
+  button.ghost { background:#334155; }
+  button.danger { background:#b91c1c; }
+  button:disabled { opacity:.5; cursor:not-allowed; }
+  .btns { display:flex; flex-wrap:wrap; gap:8px; margin-top:10px; }
+  pre { background:#0b1220; border:1px solid var(--line); border-radius:8px; padding:10px; overflow:auto; max-height:260px; font-size:12px; margin:8px 0 0; white-space:pre-wrap; }
+  input, select { background:#0b1220; color:var(--txt); border:1px solid var(--line); border-radius:8px; padding:7px 9px; font-size:13px; width:100%; }
+  label { font-size:12px; color:var(--muted); display:block; margin:8px 0 4px; }
+  .hint { font-size:12px; color:var(--muted); margin-top:8px; line-height:1.6; }
+  .err { color:#fca5a5; font-size:12.5px; margin-top:6px; word-break:break-all; }
+  .wide { grid-column:1 / -1; }
+  .toast { position:fixed; right:20px; bottom:20px; background:#22c55e; color:#052e16; padding:10px 14px; border-radius:8px; font-size:13px; opacity:0; transition:.3s; }
+  .toast.show { opacity:1; }
+  .big { font-size:16px; }
+  .tokenbox { display:flex; gap:8px; align-items:center; }
+  .tokenbox input { flex:1; }
+</style>
+</head>
+<body>
+<header>
+  <span class="dot" id="dot-main"></span>
+  <h1>RemoteKit 控制面板</h1>
+  <span class="meta" id="meta">连接中...</span>
+</header>
+
+<main>
+  <section class="card">
+    <h2><span class="dot" id="dot-tunnel"></span> 公网隧道</h2>
+    <div class="row"><span class="k">状态</span><span class="v" id="t-state">-</span></div>
+    <div class="row"><span class="k">提供方</span><span class="v mono" id="t-provider">-</span></div>
+    <div class="row"><span class="k">公网地址</span><span class="v mono url big" id="t-url">-</span></div>
+    <div class="err" id="t-err"></div>
+    <div class="btns">
+      <button onclick="copyText(S.tunnel.public_url,'公网地址已复制')">复制公网地址</button>
+      <button class="ghost" onclick="post('/api/tunnel/restart','隧道重启中')">重启隧道</button>
+      <button class="ghost" onclick="post('/api/tunnel/stop','隧道已停止')">停止隧道</button>
+    </div>
+    <details style="margin-top:10px">
+      <summary class="hint" style="cursor:pointer">隧道设置 / 首次安装说明</summary>
+      <label>隧道提供方</label>
+      <select id="cfg-provider">
+        <option value="auto">自动（有哪个用哪个）</option>
+        <option value="cpolar">cpolar</option>
+        <option value="ngrok">ngrok</option>
+        <option value="none">不开隧道（仅本机）</option>
+      </select>
+      <label>ngrok 固定域名（可选，如 xxx.ngrok-free.dev）</label>
+      <input id="cfg-ngrok-domain" placeholder="留空则每次随机">
+      <div class="btns"><button onclick="saveTunnelCfg()">保存并重启隧道</button></div>
+      <label>登录隧道账号（只需一次）：粘贴 authtoken</label>
+      <div class="tokenbox">
+        <select id="auth-provider" style="width:110px"><option value="cpolar">cpolar</option><option value="ngrok">ngrok</option></select>
+        <input id="auth-token" placeholder="从 cpolar / ngrok 官网复制的 authtoken">
+        <button onclick="setAuthtoken()">登录</button>
+      </div>
+      <div class="hint" id="t-avail"></div>
+      <div class="hint">
+        没装隧道工具？任选一个：<br>
+        · cpolar（国内快）：<a class="url" href="https://www.cpolar.com/download" target="_blank">cpolar.com/download</a> 安装后在上面粘贴 authtoken 登录<br>
+        · ngrok：<a class="url" href="https://ngrok.com/download" target="_blank">ngrok.com/download</a> 解压后把 ngrok(.exe) 放到本程序旁边的 <code>bin</code> 文件夹
+      </div>
+    </details>
+  </section>
+
+  <section class="card">
+    <h2><span class="dot" id="dot-coagent"></span> CoAgent 桌面控制 <span class="hint" style="margin:0">(仅 Windows)</span></h2>
+    <div class="row"><span class="k">状态</span><span class="v" id="c-state">-</span></div>
+    <div class="row"><span class="k">端口</span><span class="v mono" id="c-port">-</span></div>
+    <div class="row"><span class="k">目录</span><span class="v mono" id="c-dir">-</span></div>
+    <div class="row"><span class="k">Python</span><span class="v mono" id="c-py">-</span></div>
+    <div class="err" id="c-err"></div>
+    <div class="btns">
+      <button onclick="post('/api/coagent/start','CoAgent 启动中')">启动 / 重连</button>
+      <button class="ghost" onclick="post('/api/coagent/stop','CoAgent 已停止')">停止</button>
+      <button class="ghost" onclick="if(confirm('将下载 CoAgent 源码并安装依赖（需要 Python，耗时几分钟），继续？'))post('/api/coagent/install','开始安装，请看日志')">下载安装</button>
+      <button class="ghost" onclick="toggleCoagent()" id="c-toggle">禁用</button>
+    </div>
+    <div class="hint">远程调用路径：<code>&lt;公网地址&gt;/coagent/...</code>，例如 <code>/coagent/screen/jpeg</code>、<code>/coagent/mouse/click</code>，鉴权用同一个 Token。</div>
+  </section>
+
+  <section class="card">
+    <h2><span class="dot" id="dot-wmcp"></span> Windows-MCP 桌面控制 <span class="hint" style="margin:0">(仅 Windows，UIA 控件树，不依赖截图)</span></h2>
+    <div class="row"><span class="k">状态</span><span class="v" id="w-state">-</span></div>
+    <div class="row"><span class="k">端口</span><span class="v mono" id="w-port">-</span></div>
+    <div class="row"><span class="k">程序</span><span class="v mono" id="w-exe">-</span></div>
+    <div class="err" id="w-err"></div>
+    <div class="btns">
+      <button onclick="post('/api/wmcp/start','Windows-MCP 启动中')">启动 / 重连</button>
+      <button class="ghost" onclick="post('/api/wmcp/stop','Windows-MCP 已停止')">停止</button>
+      <button class="ghost" onclick="if(confirm('将通过 uv 安装官方 windows-mcp（首次要下载 Python 3.14，耗时几分钟），继续？'))post('/api/wmcp/install','开始安装，请看日志')">下载安装</button>
+      <button class="ghost" onclick="toggleWmcp()" id="w-toggle">禁用</button>
+    </div>
+    <div class="hint">MCP 地址：<code>&lt;公网地址&gt;/mcp</code>（streamable-http），鉴权用同一个 Token（<code>Authorization: Bearer &lt;token&gt;</code>）。在 Devin / MCP 客户端里配这个地址即可直接调用 Snapshot / Click / Type 等工具。</div>
+  </section>
+
+  <section class="card">
+    <h2><span class="dot ok"></span> 文件 / 命令服务</h2>
+    <div class="row"><span class="k">工作区根目录</span><span class="v mono" id="f-root">-</span></div>
+    <div class="row"><span class="k">本机地址</span><span class="v mono" id="f-local">-</span></div>
+    <div class="row"><span class="k">系统</span><span class="v mono" id="f-os">-</span></div>
+    <div class="row"><span class="k">运行时长</span><span class="v mono" id="f-up">-</span></div>
+    <label>Token（相当于密码，不要发到公开场合）</label>
+    <div class="tokenbox"><input id="tok" class="mono" readonly><button onclick="copyText(TOKEN,'Token 已复制')">复制</button></div>
+    <label>修改工作区根目录（远程只能访问此目录以内）</label>
+    <div class="tokenbox"><input id="cfg-root" class="mono"><button onclick="saveRoot()">保存</button></div>
+    <div class="btns">
+      <button class="ghost" onclick="shot()">截屏测试</button>
+    </div>
+    <div class="hint" id="shot-hint"></div>
+    <div id="shot-box"></div>
+  </section>
+
+  <section class="card wide">
+    <h2><span class="dot ok"></span> 发给 Devin 的连接信息 <button style="margin-left:auto" onclick="copyText(JSON.stringify(S.connection,null,2),'连接信息已复制，直接粘贴给 Devin')">一键复制</button></h2>
+    <pre class="mono" id="conn">-</pre>
+    <div class="hint">把上面这段 JSON 整段粘贴给 Devin 即可；隧道地址变化时它会自动更新。里面已包含下面的"知识库"内容。</div>
+  </section>
+
+  <section class="card wide">
+    <h2><span class="dot ok"></span> 知识库 / 给 AI 的操作规范
+      <span style="margin-left:auto;display:flex;gap:8px">
+        <button onclick="saveKnowledge()">保存</button>
+        <button class="ghost" onclick="if(confirm('恢复默认内容？当前修改会丢失'))post('/api/knowledge/reset','已恢复默认').then(loadKnowledge)">恢复默认</button>
+      </span>
+    </h2>
+    <textarea id="knowledge" class="mono" style="width:100%;min-height:260px;background:#0b1220;color:var(--txt);border:1px solid var(--line);border-radius:8px;padding:10px;font-size:12.5px;resize:vertical"></textarea>
+    <div class="hint">这里写的内容会随连接信息一起发给远程 AI（Devin）：操作规范、安全红线、常用路径、软件使用说明都可以放。另外 /api/exec 在服务端已硬拦截格式化、删系统目录、关机、git push 等危险命令。</div>
+  </section>
+
+  <section class="card wide">
+    <h2><span class="dot ok"></span> 运行日志 <button class="ghost" style="margin-left:auto" onclick="loadLogs()">刷新</button></h2>
+    <pre class="mono" id="logs">-</pre>
+  </section>
+</main>
+<div class="toast" id="toast"></div>
+
+<script>
+const qs = new URLSearchParams(location.search);
+let TOKEN = qs.get('token') || localStorage.getItem('rk_token') || '';
+if (qs.get('token')) { localStorage.setItem('rk_token', TOKEN); history.replaceState(null, '', location.pathname); }
+let S = { tunnel: {}, coagent: {}, wmcp: {}, connection: {} };
+
+function H() { return { 'Authorization': 'Bearer ' + TOKEN, 'Content-Type': 'application/json' }; }
+async function get(p) { const r = await fetch(p, { headers: H() }); if (r.status === 401) askToken(); return r.json(); }
+async function post(p, msg, body) {
+  const r = await fetch(p, { method: 'POST', headers: H(), body: JSON.stringify(body || {}) });
+  const j = await r.json().catch(() => ({}));
+  if (msg) toast(j.ok === false ? ('失败: ' + (j.error || '')) : msg);
+  setTimeout(refresh, 800);
+  return j;
+}
+function askToken() {
+  const t = prompt('请输入 Token（启动窗口里有显示，或看程序目录下 remotekit.json）');
+  if (t) { TOKEN = t.trim(); localStorage.setItem('rk_token', TOKEN); refresh(); }
+}
+function toast(m) { const t = document.getElementById('toast'); t.textContent = m; t.classList.add('show'); setTimeout(() => t.classList.remove('show'), 2200); }
+async function copyText(t, msg) {
+  if (!t) return toast('暂无内容');
+  try { await navigator.clipboard.writeText(t); } catch (e) {
+    const ta = document.createElement('textarea'); ta.value = t; document.body.appendChild(ta); ta.select(); document.execCommand('copy'); ta.remove();
+  }
+  toast(msg || '已复制');
+}
+function dot(id, cls) { const d = document.getElementById(id); d.className = 'dot ' + cls; }
+function txt(id, v) { document.getElementById(id).textContent = v == null || v === '' ? '-' : v; }
+const T_STATE = { online: ['在线', 'ok'], starting: ['连接中...', 'warn'], stopped: ['已停止', ''], error: ['出错', 'bad'] };
+const C_STATE = { online: ['在线', 'ok'], starting: ['启动中...', 'warn'], installing: ['安装中...', 'warn'], stopped: ['未运行', ''], error: ['出错', 'bad'], disabled: ['已禁用', ''] };
+function fmtUp(s) { if (s < 60) return s + ' 秒'; if (s < 3600) return Math.floor(s / 60) + ' 分钟'; return (s / 3600).toFixed(1) + ' 小时'; }
+
+async function refresh() {
+  try {
+    const s = await get('/api/status');
+    if (!s.ok) return;
+    S = s;
+    dot('dot-main', 'ok');
+    txt('meta', `v${s.version} · ${s.host} · ${s.os}`);
+    txt('shot-hint', s.os === 'mac' ? '截屏全黑说明 macOS 未授权：系统设置 → 隐私与安全性 → 屏幕录制，勾选 RemoteKit（或启动它的终端），然后重启本程序。' : '');
+    const ts = T_STATE[s.tunnel.state] || ['-', ''];
+    dot('dot-tunnel', ts[1]); txt('t-state', ts[0]); txt('t-provider', s.tunnel.provider); txt('t-url', s.tunnel.public_url);
+    txt('t-err', s.tunnel.state === 'error' ? s.tunnel.error : '');
+    const av = s.tunnel.available || {};
+    document.getElementById('t-avail').textContent = '检测到: cpolar ' + (av.cpolar ? '✓ ' + av.cpolar : '✗') + '   |   ngrok ' + (av.ngrok ? '✓ ' + av.ngrok : '✗');
+    const cs = C_STATE[s.coagent.state] || ['-', ''];
+    dot('dot-coagent', cs[1]); txt('c-state', cs[0]); txt('c-port', s.coagent.port); txt('c-dir', s.coagent.dir); txt('c-py', s.coagent.python);
+    txt('c-err', s.coagent.error || '');
+    document.getElementById('c-toggle').textContent = s.config.coagent.enabled ? '禁用' : '启用';
+    const ws = C_STATE[s.wmcp.state] || ['-', ''];
+    dot('dot-wmcp', ws[1]); txt('w-state', ws[0]); txt('w-port', s.wmcp.port); txt('w-exe', s.wmcp.exe);
+    txt('w-err', s.wmcp.error || '');
+    document.getElementById('w-toggle').textContent = s.config.wmcp.enabled ? '禁用' : '启用';
+    txt('f-root', s.root); txt('f-local', 'http://127.0.0.1:' + s.port); txt('f-os', s.os); txt('f-up', fmtUp(s.uptime));
+    document.getElementById('tok').value = TOKEN;
+    if (document.activeElement !== document.getElementById('cfg-root')) document.getElementById('cfg-root').value = s.config.root;
+    if (document.activeElement !== document.getElementById('cfg-provider')) document.getElementById('cfg-provider').value = s.config.tunnel.provider;
+    if (document.activeElement !== document.getElementById('cfg-ngrok-domain')) document.getElementById('cfg-ngrok-domain').value = s.config.tunnel.ngrok_domain || '';
+    document.getElementById('conn').textContent = JSON.stringify(s.connection, null, 2);
+  } catch (e) { dot('dot-main', 'bad'); txt('meta', '无法连接到 RemoteKit（程序是否已关闭？）'); }
+}
+async function loadLogs() {
+  try { const j = await get('/api/logs?n=120'); const el = document.getElementById('logs'); el.textContent = (j.lines || []).join('\n'); el.scrollTop = el.scrollHeight; } catch (e) {}
+}
+async function loadKnowledge() {
+  try {
+    const j = await get('/api/knowledge');
+    const el = document.getElementById('knowledge');
+    if (document.activeElement !== el) el.value = j.content || '';
+  } catch (e) {}
+}
+async function saveKnowledge() {
+  await post('/api/knowledge', '知识库已保存', { content: document.getElementById('knowledge').value });
+}
+async function saveTunnelCfg() {
+  await post('/api/config', null, { tunnel: { provider: document.getElementById('cfg-provider').value, ngrok_domain: document.getElementById('cfg-ngrok-domain').value.trim() } });
+  await post('/api/tunnel/restart', '已保存，隧道重启中');
+}
+async function saveRoot() { await post('/api/config', '工作区已更新', { root: document.getElementById('cfg-root').value.trim() }); }
+async function setAuthtoken() {
+  const t = document.getElementById('auth-token').value.trim(); if (!t) return toast('请先粘贴 authtoken');
+  const j = await post('/api/tunnel/authtoken', null, { provider: document.getElementById('auth-provider').value, authtoken: t });
+  toast(j.ok ? '登录成功，正在重启隧道' : '登录失败: ' + (j.output || j.error || ''));
+  if (j.ok) { document.getElementById('auth-token').value = ''; post('/api/tunnel/restart'); }
+}
+async function toggleCoagent() {
+  const en = !S.config.coagent.enabled;
+  await post('/api/config', en ? 'CoAgent 已启用' : 'CoAgent 已禁用', { coagent: { enabled: en } });
+  if (en) post('/api/coagent/start'); else post('/api/coagent/stop');
+}
+async function toggleWmcp() {
+  const en = !S.config.wmcp.enabled;
+  await post('/api/config', en ? 'Windows-MCP 已启用' : 'Windows-MCP 已禁用', { wmcp: { enabled: en } });
+  if (en) post('/api/wmcp/start'); else post('/api/wmcp/stop');
+}
+async function shot() {
+  toast('截屏中...');
+  const r = await fetch('/api/screenshot?format=base64', { headers: H() }); const j = await r.json();
+  if (!j.ok) return toast('截屏失败: ' + j.error);
+  document.getElementById('shot-box').innerHTML = `<img src="data:image/png;base64,${j.png_base64}" style="max-width:100%;margin-top:10px;border-radius:8px;border:1px solid var(--line)">`;
+}
+refresh(); loadLogs(); loadKnowledge();
+setInterval(refresh, 3000); setInterval(loadLogs, 5000);
+</script>
+</body>
+</html>

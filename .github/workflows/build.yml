@@ -1,0 +1,43 @@
+name: build
+
+on:
+  workflow_dispatch:
+  push:
+    tags: ["v*"]
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            artifact: RemoteKit-windows-x64.exe
+            out: dist/RemoteKit.exe
+          - os: macos-latest
+            artifact: RemoteKit-macos-arm64
+            out: dist/RemoteKit
+          - os: ubuntu-latest
+            artifact: RemoteKit-linux-x64
+            out: dist/RemoteKit
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Build
+        env:
+          PYTHONIOENCODING: utf-8
+          PYTHONUTF8: "1"
+        run: python build.py
+      - name: Rename artifact
+        shell: bash
+        run: |
+          mkdir -p out
+          cp "${{ matrix.out }}" "out/${{ matrix.artifact }}"
+          chmod +x "out/${{ matrix.artifact }}" || true
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: out/${{ matrix.artifact }}

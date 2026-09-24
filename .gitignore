@@ -1,0 +1,13 @@
+__pycache__/
+build/
+dist/
+.venv-build/
+*.spec
+.DS_Store
+
+# 运行时生成（含敏感 token，勿提交）
+remotekit.json
+knowledge.md
+logs/
+bin/
+Hermes-CoAgent/
