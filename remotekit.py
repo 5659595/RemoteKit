@@ -913,14 +913,22 @@ class WindowsMCPManager:
         return which("windows-mcp.exe", "windows-mcp", extra_dirs=self.UV_DIRS)
 
     def ping(self) -> bool:
-        """MCP 端点对裸请求回 4xx 也算活着；只有完全没响应才算不在。"""
+        """只认"像 MCP 服务"的响应（json / event-stream / jsonrpc 字样）；
+        端口上被无关 HTTP 服务占用时返回 False，不误判 online。"""
+        req = urllib.request.Request(f"http://127.0.0.1:{self.port}/mcp",
+                                     headers={"Accept": "application/json, text/event-stream"})
         try:
-            http_get(f"http://127.0.0.1:{self.port}/mcp/", timeout=2)
-            return True
-        except urllib.error.HTTPError:
-            return True
+            with urllib.request.urlopen(req, timeout=2) as r:
+                ctype = r.headers.get("Content-Type", "")
+                body = r.read(4096)
+        except urllib.error.HTTPError as exc:
+            ctype = exc.headers.get("Content-Type", "") if exc.headers else ""
+            body = exc.read(4096)
         except Exception:  # noqa: BLE001
-            return port_open(self.port)
+            return False
+        if "json" in ctype or "event-stream" in ctype:
+            return True
+        return b"jsonrpc" in body.lower()
 
     UV_RELEASE = {
         ("windows", "AMD64"): "uv-x86_64-pc-windows-msvc.zip",
