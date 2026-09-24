@@ -70,8 +70,15 @@ DEFAULT_KNOWLEDGE = """\
 ## 通道说明
 - 文件 / 命令：/api/*（read / write / exec / search / batch / list / screenshot）。
 - 搜索用 /api/search 即时全仓扫描，不要逐个拉文件；多文件操作用 /api/batch 合并成一次往返。
-- 桌面控制两条路：/mcp = Windows-MCP（UIA 控件树，拿控件名+坐标直接点，不用截图，优先用）；
-  /coagent/* = Hermes CoAgent（REST，鼠标键盘 / 浏览器）。截图仅用于确认画面。
+
+## 桌面操作优先级（重要）
+- **第一选择永远是 /mcp（Windows-MCP）**：先 `Snapshot` 抓 UIA 控件树，按控件名+坐标用
+  `Click / Type / Scroll / Shortcut` 直接操作——不截图、速度快、坐标精确。
+- **只有 MCP 搞不定才退到截图流**：`Snapshot` 拿不到目标控件（自绘界面 / Electron 残缺树 / 游戏）、
+  需要肉眼确认画面、或 MCP 工具连续失败时，才用 `/api/screenshot`（或 windows-mcp 的
+  `Screenshot` 工具）+ `/coagent/*` 按像素坐标操作。
+- 每步操作后再 `Snapshot` 验证结果，不要盲信上一步成功；浏览器场景优先 `Snapshot` 带
+  `use_dom=true`，只取网页 DOM 更干净。
 
 ## 安全红线（任何情况下不许违反）
 - 文件读写只许在工作区根目录（connection.workspace）以内；不碰系统目录
